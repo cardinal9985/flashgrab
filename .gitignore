@@ -1,4 +1,4 @@
-flashgrab
+/flashgrab
 dist/
 *.tmp
 .envrc
