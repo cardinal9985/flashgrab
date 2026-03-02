@@ -1,0 +1,74 @@
+version: 2
+
+project_name: flashgrab
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - main: ./cmd/flashgrab
+    binary: flashgrab
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+nfpms:
+  - package_name: flashgrab
+    homepage: https://github.com/cardinal9985/flashgrab
+    maintainer: cardinal9985
+    description: Grab Flash and browser games from the web
+    license: MIT
+    formats:
+      - deb
+      - rpm
+
+brews:
+  - repository:
+      owner: cardinal9985
+      name: homebrew-tap
+    homepage: https://github.com/cardinal9985/flashgrab
+    description: Grab Flash and browser games from the web
+    license: MIT
+    install: |
+      bin.install "flashgrab"
+
+aurs:
+  - name: flashgrab-bin
+    homepage: https://github.com/cardinal9985/flashgrab
+    description: Grab Flash and browser games from the web
+    maintainers:
+      - cardinal9985
+    license: MIT
+    private_key: "{{ .Env.AUR_SSH_KEY }}"
+    git_url: "ssh://aur@aur.archlinux.org/flashgrab-bin.git"
+    package: |
+      install -Dm755 flashgrab "${pkgdir}/usr/bin/flashgrab"
+      install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/flashgrab/LICENSE"
