@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -49,6 +50,16 @@ func (fp *FlashpointClient) Lookup(title, sourceURL string) *FlashpointMatch {
 	}
 
 	results := fp.query(title)
+
+	// If nothing came back, try again with version junk stripped
+	// ("Interactive Buddy v.1.01" → "Interactive Buddy").
+	if len(results) == 0 {
+		clean := stripVersion(title)
+		if clean != title {
+			results = fp.query(clean)
+		}
+	}
+
 	if len(results) == 0 {
 		return nil
 	}
@@ -178,4 +189,13 @@ func extractPath(normalized string) string {
 		return ""
 	}
 	return strings.TrimRight(normalized[idx:], "/")
+}
+
+// versionRe matches trailing version strings like "v.1.01", "v2", "Version 1.0",
+// "1.02", "(v3.1)" etc. that sites append to game titles.
+var versionRe = regexp.MustCompile(`(?i)\s*[\(\[]?\s*v(?:ersion)?\.?\s*\d[\d.]*\s*[\)\]]?\s*$`)
+
+func stripVersion(title string) string {
+	cleaned := versionRe.ReplaceAllString(title, "")
+	return strings.TrimSpace(cleaned)
 }

@@ -117,3 +117,25 @@ func TestBestMatch(t *testing.T) {
 		t.Errorf("expected ID=1, got ID=%s", match.ID)
 	}
 }
+
+func TestStripVersion(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"Interactive Buddy v.1.01", "Interactive Buddy"},
+		{"Cool Game v2", "Cool Game"},
+		{"Something Version 1.0", "Something"},
+		{"Game v.3.2.1", "Game"},
+		{"Game (v1.5)", "Game"},
+		{"No Version Here", "No Version Here"},
+		{"v2", ""},
+	}
+
+	for _, tt := range tests {
+		got := stripVersion(tt.input)
+		if got != tt.want {
+			t.Errorf("stripVersion(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
