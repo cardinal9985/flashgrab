@@ -57,29 +57,41 @@ func (fp *FlashpointClient) Lookup(title, sourceURL string) *FlashpointMatch {
 }
 
 func (fp *FlashpointClient) query(title string) []flashpointEntry {
-	params := url.Values{
-		"title":  {title},
-		"fields": {"id,title,developer,source,launchCommand,platform"},
-		"limit":  {"20"},
-	}
-	searchURL := fp.baseURL + "/search?" + params.Encode()
+	fields := "id,title,developer,source,launchCommand,platform"
 
-	resp, err := fp.client.Get(searchURL)
-	if err != nil {
-		return nil
-	}
-	defer resp.Body.Close()
+	// Try exact title first, fall back to smart search for fuzzy matching
+	// (handles version suffixes like "v.1.01" that sites append to titles).
+	for _, param := range []string{"title", "smartSearch"} {
+		params := url.Values{
+			param:    {title},
+			"fields": {fields},
+			"limit":  {"20"},
+		}
+		searchURL := fp.baseURL + "/search?" + params.Encode()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil
+		resp, err := fp.client.Get(searchURL)
+		if err != nil {
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			continue
+		}
+
+		var results []flashpointEntry
+		if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
+			resp.Body.Close()
+			continue
+		}
+		resp.Body.Close()
+
+		if len(results) > 0 {
+			return results
+		}
 	}
 
-	var results []flashpointEntry
-	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
-		return nil
-	}
-
-	return results
+	return nil
 }
 
 func (fp *FlashpointClient) bestMatch(entries []flashpointEntry, title, sourceURL string) *FlashpointMatch {
