@@ -25,7 +25,7 @@
           pname = "flashgrab";
           version = "0.1.0";
           src = ./.;
-          vendorHash = null; # update after first build
+          vendorHash = "sha256-9kKzk+hD1TKePc0sOPyJgG66PQGRaHZ72KltJvVUYAo=";
         };
       });
 }

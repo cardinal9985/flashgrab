@@ -23,12 +23,6 @@ database for accurate naming and metadata.
 # go
 go install github.com/cardinal9985/flashgrab/cmd/flashgrab@latest
 
-# homebrew
-brew install cardinal9985/tap/flashgrab
-
-# aur
-yay -S flashgrab-bin
-
 # nix
 nix run github:cardinal9985/flashgrab
 

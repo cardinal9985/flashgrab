@@ -51,16 +51,3 @@ nfpms:
     formats:
       - deb
       - rpm
-
-aurs:
-  - name: flashgrab-bin
-    homepage: https://github.com/cardinal9985/flashgrab
-    description: Grab Flash and browser games from the web
-    maintainers:
-      - cardinal9985
-    license: MIT
-    private_key: "{{ .Env.AUR_SSH_KEY }}"
-    git_url: "ssh://aur@aur.archlinux.org/flashgrab-bin.git"
-    package: |
-      install -Dm755 flashgrab "${pkgdir}/usr/bin/flashgrab"
-      install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/flashgrab/LICENSE"
