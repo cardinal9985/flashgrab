@@ -1,10 +1,3 @@
-```
- ▛▀▘▌  ▞▀▖▞▀▖▌ ▌▞▀▖▛▀▖▞▀▖▛▀▖
- ▙▄ ▌  ▙▄▌▚▄ ▙▄▌▌▄▖▙▄▘▙▄▌▙▄▘
- ▌  ▌  ▌ ▌▖ ▌▌ ▌▌ ▌▌▚ ▌ ▌▌ ▌
- ▘  ▀▀▘▘ ▘▝▀ ▘ ▘▝▀ ▘ ▘▘ ▘▀▀
-```
-
 **Grab Flash and browser games from the web.**
 
 A terminal tool for downloading `.swf` files and other browser games from
