@@ -23,11 +23,13 @@ builds:
       - arm64
 
 archives:
-  - format: tar.gz
+  - formats:
+      - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
 
 checksum:
   name_template: checksums.txt
@@ -49,16 +51,6 @@ nfpms:
     formats:
       - deb
       - rpm
-
-brews:
-  - repository:
-      owner: cardinal9985
-      name: homebrew-tap
-    homepage: https://github.com/cardinal9985/flashgrab
-    description: Grab Flash and browser games from the web
-    license: MIT
-    install: |
-      bin.install "flashgrab"
 
 aurs:
   - name: flashgrab-bin
