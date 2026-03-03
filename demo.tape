@@ -14,14 +14,18 @@ Type "flashgrab"
 Enter
 Sleep 2.5s
 
+# Skip splash
+Enter
+Sleep 500ms
+
 # Paste a Newgrounds URL
 Type "https://www.newgrounds.com/portal/view/218014"
 Sleep 300ms
 Enter
-Sleep 8s
+Sleep 15s
 
-# Done screen — shows Flashpoint match info
-Sleep 2s
+# Linger on done screen
+Sleep 3s
 
 # Quit
 Type "q"
