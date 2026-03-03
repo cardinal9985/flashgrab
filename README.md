@@ -5,7 +5,7 @@ Newgrounds, itch.io, Kongregate, and Internet Archive. Games are
 cross-referenced against the [Flashpoint Archive](https://flashpointarchive.org)
 database for accurate naming and metadata.
 
-![demo](demo.gif)
+![demo](demo.gif?v=2)
 
 ## Features
 
