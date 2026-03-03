@@ -25,11 +25,12 @@ func newInputModel() inputModel {
 	return inputModel{textInput: ti}
 }
 
-// resolveMsg is sent when background URL resolution completes.
 type resolveMsg struct {
 	game *sites.Game
 	err  error
 }
+
+type openSettingsMsg struct{}
 
 func (m inputModel) Init() tea.Cmd {
 	return textinput.Blink
@@ -44,19 +45,19 @@ func (m inputModel) Update(msg tea.Msg) (inputModel, tea.Cmd) {
 		m.err = ""
 
 		switch msg.String() {
+		case "ctrl+s":
+			return m, func() tea.Msg { return openSettingsMsg{} }
 		case "enter":
 			url := strings.TrimSpace(m.textInput.Value())
 			if url == "" {
 				return m, nil
 			}
 
-			// Quick client-side validation before we hit the network.
 			if _, err := sanitize.URL(url); err != nil {
 				m.err = err.Error()
 				return m, nil
 			}
 
-			// Kick off the resolve in the background.
 			return m, func() tea.Msg {
 				game, err := sites.Resolve(url)
 				return resolveMsg{game: game, err: err}
@@ -80,7 +81,7 @@ func (m inputModel) View() string {
 		b.WriteString("\n" + errorStyle.Render("  "+m.err) + "\n")
 	}
 
-	b.WriteString("\n" + helpStyle.Render("enter: search  ctrl+c: quit"))
+	b.WriteString("\n" + helpStyle.Render("enter: search  ctrl+s: settings  ctrl+c: quit"))
 
 	return b.String()
 }

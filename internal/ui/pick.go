@@ -9,8 +9,7 @@ import (
 	"github.com/cardinal9985/flashgrab/internal/sites"
 )
 
-// pickModel lets the user choose which file(s) to download when a game has
-// multiple uploads (common on itch.io).
+// pickModel lets the user choose which file(s) to download.
 type pickModel struct {
 	game     *sites.Game
 	cursor   int
@@ -19,10 +18,9 @@ type pickModel struct {
 }
 
 func newPickModel(game *sites.Game) pickModel {
-	sel := make(map[int]bool)
-	// Pre-select everything if there's only one file.
-	if len(game.Files) == 1 {
-		sel[0] = true
+	sel := make(map[int]bool, len(game.Files))
+	for i := range game.Files {
+		sel[i] = true
 	}
 	return pickModel{
 		game:     game,
@@ -30,7 +28,6 @@ func newPickModel(game *sites.Game) pickModel {
 	}
 }
 
-// pickDoneMsg carries the files the user chose to download.
 type pickDoneMsg struct {
 	game  *sites.Game
 	files []sites.GameFile

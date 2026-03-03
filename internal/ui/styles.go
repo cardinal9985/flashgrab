@@ -6,7 +6,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Color palette. Warm and retro, inspired by the Flash era and Newgrounds.
 var (
 	colorOrange = lipgloss.Color("#FF6600")
 	colorGreen  = lipgloss.Color("#04B575")
@@ -17,7 +16,6 @@ var (
 	colorYellow = lipgloss.Color("#FFB627")
 )
 
-// Shared styles used across all views.
 var (
 	titleStyle = lipgloss.NewStyle().
 			Foreground(colorOrange).
@@ -51,7 +49,6 @@ var (
 			Italic(true)
 )
 
-// formatSize returns a human-readable file size string.
 func formatSize(bytes int64) string {
 	switch {
 	case bytes >= 1<<30:

@@ -12,7 +12,6 @@ import (
 	"github.com/cardinal9985/flashgrab/internal/sites"
 )
 
-// view represents the current screen in the state machine.
 type view int
 
 const (
@@ -25,15 +24,14 @@ const (
 	viewDone
 )
 
-// Model is the top-level bubbletea model that routes between views.
 type Model struct {
 	view     view
 	cfg      *config.Config
 	width    int
 	height   int
 	fpClient *sites.FlashpointClient
+	firstRun bool
 
-	// Sub-models for each view.
 	setup    setupModel
 	input    inputModel
 	resolve  spinner.Model
@@ -41,12 +39,10 @@ type Model struct {
 	progress progressModel
 	done     doneModel
 
-	// Stashed state between views.
 	resolveURL string
 }
 
-// New creates the root TUI model. If firstRun is true, the setup wizard is
-// shown before anything else.
+// New creates the root TUI model.
 func New(cfg *config.Config, firstRun bool) Model {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
@@ -61,6 +57,7 @@ func New(cfg *config.Config, firstRun bool) Model {
 	if firstRun {
 		m.view = viewSetup
 		m.setup = newSetupModel(cfg)
+		m.firstRun = true
 	} else {
 		m.view = viewLogo
 	}
@@ -68,7 +65,6 @@ func New(cfg *config.Config, firstRun bool) Model {
 	return m
 }
 
-// splashDoneMsg is sent after the logo display timeout.
 type splashDoneMsg struct{}
 
 func (m Model) Init() tea.Cmd {
@@ -93,7 +89,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
-		// Any keypress skips the splash screen.
 		if m.view == viewLogo {
 			return m.switchToInput()
 		}
@@ -140,11 +135,8 @@ func (m Model) View() string {
 		content = m.done.View()
 	}
 
-	// Add consistent padding around everything.
 	return lipgloss.NewStyle().Padding(1, 2).Render(content)
 }
-
-// -- View transition helpers --
 
 func (m Model) switchToInput() (tea.Model, tea.Cmd) {
 	m.view = viewInput
@@ -156,16 +148,17 @@ func (m Model) updateSetup(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case setupDoneMsg:
 		m.cfg = msg.cfg
-		if err := config.Save(msg.cfg); err != nil {
-			// Not much we can do here. The config just won't persist.
-			_ = err
-		}
-		// Re-register itch.io with the new key.
+		_ = config.Save(msg.cfg)
 		sites.NewItchio(m.cfg.Itchio.APIKey)
-		m.view = viewLogo
-		return m, tea.Tick(1500*time.Millisecond, func(time.Time) tea.Msg {
-			return splashDoneMsg{}
-		})
+
+		if m.firstRun {
+			m.firstRun = false
+			m.view = viewLogo
+			return m, tea.Tick(1500*time.Millisecond, func(time.Time) tea.Msg {
+				return splashDoneMsg{}
+			})
+		}
+		return m.switchToInput()
 	}
 
 	var cmd tea.Cmd
@@ -180,8 +173,16 @@ func (m Model) updateLogo(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) switchToSettings() (tea.Model, tea.Cmd) {
+	m.view = viewSetup
+	m.setup = newSetupModel(m.cfg)
+	return m, m.setup.Init()
+}
+
 func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case openSettingsMsg:
+		return m.switchToSettings()
 	case resolveMsg:
 		if msg.err != nil {
 			m.view = viewInput
@@ -190,11 +191,9 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Try to improve filenames using Flashpoint.
 		m.improveFilenames(msg.game)
 
 		if len(msg.game.Files) == 1 {
-			// Skip the pick screen for single-file games.
 			mgr := download.New(m.cfg.DownloadDir)
 			m.progress = newProgressModel(msg.game, msg.game.Files, mgr)
 			m.view = viewProgress
@@ -209,7 +208,6 @@ func (m Model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 
-	// If the input triggered a resolve, switch to the spinner view.
 	if m.input.textInput.Value() != "" {
 		if _, ok := msg.(tea.KeyMsg); ok {
 			if msg.(tea.KeyMsg).String() == "enter" && m.input.err == "" {
@@ -296,23 +294,24 @@ func (m Model) updateDone(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// improveFilenames queries Flashpoint for each file and updates the filename
-// to match the canonical title if a match is found.
 func (m Model) improveFilenames(game *sites.Game) {
-	canonical := m.fpClient.LookupTitle(game.Title)
-	if canonical == "" || canonical == game.Title {
+	match := m.fpClient.Lookup(game.Title, game.URL)
+	if match == nil {
 		return
 	}
 
-	game.Title = canonical
-	for i := range game.Files {
-		ext := ""
-		name := game.Files[i].Filename
-		if dot := lastDot(name); dot >= 0 {
-			ext = name[dot:]
-			name = name[:dot]
+	game.Flashpoint = match
+
+	if match.Title != "" && match.Title != game.Title {
+		game.Title = match.Title
+		for i := range game.Files {
+			ext := ""
+			name := game.Files[i].Filename
+			if dot := lastDot(name); dot >= 0 {
+				ext = name[dot:]
+			}
+			game.Files[i].Filename = sanitize.Filename(match.Title, ext)
 		}
-		game.Files[i].Filename = sanitize.Filename(canonical, ext)
 	}
 }
 

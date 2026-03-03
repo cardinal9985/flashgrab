@@ -8,9 +8,16 @@ import (
 	"time"
 )
 
-// FlashpointClient queries the Flashpoint Archive database to find canonical
-// game titles. This isn't a Site implementation—it's a supplementary lookup
-// used by the download pipeline to improve filenames.
+// FlashpointMatch holds metadata from a confirmed Flashpoint Archive entry.
+type FlashpointMatch struct {
+	ID        string
+	Title     string
+	Developer string
+	Source    string // original page URL
+	Platform  string
+}
+
+// FlashpointClient looks up games in the Flashpoint Archive database.
 type FlashpointClient struct {
 	client  *http.Client
 	baseURL string
@@ -25,57 +32,138 @@ func NewFlashpointClient() *FlashpointClient {
 	}
 }
 
-// LookupTitle searches Flashpoint for a game by title and returns the
-// canonical title if found. Returns an empty string (not an error) when
-// nothing matches—this is expected for games that aren't in the archive.
-func (fp *FlashpointClient) LookupTitle(title string) string {
+type flashpointEntry struct {
+	ID            string `json:"id"`
+	Title         string `json:"title"`
+	Developer     string `json:"developer"`
+	Source        string `json:"source"`
+	LaunchCommand string `json:"launchCommand"`
+	Platform      string `json:"platform"`
+}
+
+// Lookup searches Flashpoint for a game by title and source URL, returning the
+// best match or nil if nothing matched well enough.
+func (fp *FlashpointClient) Lookup(title, sourceURL string) *FlashpointMatch {
 	if title == "" {
-		return ""
+		return nil
 	}
 
-	// Use the search endpoint with the title as the query.
+	results := fp.query(title)
+	if len(results) == 0 {
+		return nil
+	}
+
+	return fp.bestMatch(results, title, sourceURL)
+}
+
+func (fp *FlashpointClient) query(title string) []flashpointEntry {
 	params := url.Values{
-		"search": {title},
+		"title":  {title},
+		"fields": {"id,title,developer,source,launchCommand,platform"},
+		"limit":  {"20"},
 	}
 	searchURL := fp.baseURL + "/search?" + params.Encode()
 
 	resp, err := fp.client.Get(searchURL)
 	if err != nil {
-		return ""
+		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return ""
+		return nil
 	}
 
-	var results []struct {
-		Title string `json:"title"`
-	}
-
+	var results []flashpointEntry
 	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
-		return ""
+		return nil
 	}
 
-	if len(results) == 0 {
-		return ""
+	return results
+}
+
+func (fp *FlashpointClient) bestMatch(entries []flashpointEntry, title, sourceURL string) *FlashpointMatch {
+	normSource := normalizeURL(sourceURL)
+
+	type scored struct {
+		entry flashpointEntry
+		score int
 	}
 
-	// Look for an exact or near-exact match. Flashpoint search is fuzzy,
-	// so we verify that the top result is actually close to what we asked for.
-	for _, r := range results {
-		if strings.EqualFold(r.Title, title) {
-			return r.Title
+	var best *scored
+
+	for _, e := range entries {
+		s := 0
+
+		// URL matching (strongest signal)
+		if normSource != "" {
+			normEntry := normalizeURL(e.Source)
+			if normEntry != "" {
+				if normEntry == normSource {
+					// Exact URL match — return immediately
+					return entryToMatch(e)
+				}
+				if pathsMatch(normSource, normEntry) {
+					s = 100
+				}
+			}
+		}
+
+		// Title matching
+		if strings.EqualFold(e.Title, title) {
+			s += 50
+		} else if strings.Contains(strings.ToLower(e.Title), strings.ToLower(title)) ||
+			strings.Contains(strings.ToLower(title), strings.ToLower(e.Title)) {
+			s += 20
+		}
+
+		if s > 0 && (best == nil || s > best.score) {
+			best = &scored{entry: e, score: s}
 		}
 	}
 
-	// If nothing matched exactly, check if the top result contains our query
-	// as a substring. This catches cases like "Game Name v1.2" matching "Game Name".
-	top := results[0].Title
-	if strings.Contains(strings.ToLower(top), strings.ToLower(title)) ||
-		strings.Contains(strings.ToLower(title), strings.ToLower(top)) {
-		return top
+	if best == nil {
+		return nil
 	}
 
-	return ""
+	return entryToMatch(best.entry)
+}
+
+func entryToMatch(e flashpointEntry) *FlashpointMatch {
+	return &FlashpointMatch{
+		ID:        e.ID,
+		Title:     e.Title,
+		Developer: e.Developer,
+		Source:    e.Source,
+		Platform:  e.Platform,
+	}
+}
+
+// normalizeURL strips scheme, www prefix, and trailing slash for comparison.
+func normalizeURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	s := strings.TrimSpace(raw)
+	s = strings.TrimPrefix(s, "https://")
+	s = strings.TrimPrefix(s, "http://")
+	s = strings.TrimPrefix(s, "www.")
+	s = strings.TrimRight(s, "/")
+	return strings.ToLower(s)
+}
+
+// pathsMatch checks if two normalized URLs share the same path component
+// (e.g. /portal/view/218014), ignoring the domain.
+func pathsMatch(a, b string) bool {
+	pathA := extractPath(a)
+	pathB := extractPath(b)
+	return pathA != "" && pathA == pathB
+}
+
+func extractPath(normalized string) string {
+	idx := strings.IndexByte(normalized, '/')
+	if idx < 0 {
+		return ""
+	}
+	return strings.TrimRight(normalized[idx:], "/")
 }

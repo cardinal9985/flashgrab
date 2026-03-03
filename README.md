@@ -1,132 +1,88 @@
 ```
- _____ _           _     ____           _
-|  ___| | __ _ ___| |__ / ___|_ __ __ _| |__
-| |_  | |/ _` / __| '_ \| |  _| '__/ _` | '_ \
-|  _| | | (_| \__ \ | | | |_| | | | (_| | |_) |
-|_|   |_|\__,_|___/_| |_|\____|_|  \__,_|_.__/
+ ▛▀▘▌  ▞▀▖▞▀▖▌ ▌▞▀▖▛▀▖▞▀▖▛▀▖
+ ▙▄ ▌  ▙▄▌▚▄ ▙▄▌▌▄▖▙▄▘▙▄▌▙▄▘
+ ▌  ▌  ▌ ▌▖ ▌▌ ▌▌ ▌▌▚ ▌ ▌▌ ▌
+ ▘  ▀▀▘▘ ▘▝▀ ▘ ▘▝▀ ▘ ▘▘ ▘▀▀
 ```
 
 **Grab Flash and browser games from the web.**
 
-A terminal UI for downloading `.swf` files and other browser games from
-Newgrounds, itch.io, Kongregate, and Internet Archive. Built for game
-preservation, ROM managers, and anyone who wants to save Flash games before
-they disappear.
+A terminal tool for downloading `.swf` files and other browser games from
+Newgrounds, itch.io, Kongregate, and Internet Archive. Games are
+cross-referenced against the [Flashpoint Archive](https://flashpointarchive.org)
+database for accurate naming and metadata.
 
 ![demo](demo.gif)
 
 ## Features
 
-- Interactive TUI with search, file selection, and download progress
-- Non-interactive CLI mode for scripting (`flashgrab <url>`)
-- Downloads from **Newgrounds**, **itch.io**, **Kongregate**, and **Internet Archive**
-- Automatic filename matching against the [Flashpoint Archive](https://flashpointarchive.org) database
-- Skips files that already exist (no duplicates)
-- Atomic downloads — partial files are cleaned up on failure
-- Configurable download directory via `~/.config/flashgrab/config.toml`
-- API keys stored with restrictive file permissions
+- Interactive TUI with file selection and download progress
+- CLI mode for scripting (`flashgrab <url>`)
+- **Newgrounds**, **itch.io**, **Kongregate**, **Internet Archive** support
+- Cross-references the [Flashpoint Archive](https://flashpointarchive.org) DB — matches by source URL and title, shows developer/platform info
+- Skips already-downloaded files
+- Atomic downloads (partial files cleaned up on failure)
+- First-run setup wizard, re-accessible via `flashgrab config` or `ctrl+s`
 
 ## Install
 
-### Go
-
 ```sh
+# go
 go install github.com/cardinal9985/flashgrab/cmd/flashgrab@latest
-```
 
-### Homebrew
-
-```sh
+# homebrew
 brew install cardinal9985/tap/flashgrab
-```
 
-### Arch Linux (AUR)
-
-```sh
+# aur
 yay -S flashgrab-bin
-```
 
-### Nix
-
-```sh
+# nix
 nix run github:cardinal9985/flashgrab
-```
 
-Or add to your flake inputs and include `flashgrab.packages.${system}.default`
-in your packages.
-
-### Debian / Ubuntu
-
-Download the `.deb` from the [releases page](https://github.com/cardinal9985/flashgrab/releases):
-
-```sh
+# debian/ubuntu — grab .deb from releases
 sudo dpkg -i flashgrab_*.deb
 ```
 
-### Binary
-
-Grab a binary from [releases](https://github.com/cardinal9985/flashgrab/releases)
-and put it somewhere on your `$PATH`.
+Or download a binary from [releases](https://github.com/cardinal9985/flashgrab/releases).
 
 ## Usage
 
-### TUI mode
-
 ```sh
-flashgrab
+flashgrab                                              # interactive TUI
+flashgrab https://www.newgrounds.com/portal/view/59593 # direct download
+flashgrab config                                       # re-run setup
 ```
 
-Launches the interactive interface. Paste a URL, pick your files, watch them
-download. Press `n` after a download to grab another, `q` to quit.
-
-### CLI mode
-
-```sh
-flashgrab https://www.newgrounds.com/portal/view/218014
-```
-
-Downloads directly to your configured directory. No TUI, no fuss. Useful in
-scripts or paired with `xargs`.
-
-### First-time setup
-
-On first run, flashgrab asks for:
-
-1. **Download directory** — where files get saved (default: `~/Downloads`)
-2. **itch.io API key** — optional, only needed for itch.io downloads
-
-Get an itch.io key at https://itch.io/user/settings/api-keys
-
-Re-run the setup wizard anytime:
-
-```sh
-flashgrab config
-```
-
-Config lives at `~/.config/flashgrab/config.toml`.
+First run will ask for a download directory and an optional itch.io API key
+(get one at https://itch.io/user/settings/api-keys). Config is stored at
+`~/.config/flashgrab/config.toml`.
 
 ## Supported sites
 
-| Site | What it grabs | Auth needed |
-|------|---------------|-------------|
-| [Newgrounds](https://newgrounds.com) | SWF, MP4, WebM from portal pages | No |
-| [itch.io](https://itch.io) | Any uploaded file (SWF, ZIP, HTML5, etc.) | API key |
-| [Kongregate](https://kongregate.com) | SWF files from game pages | No |
-| [Internet Archive](https://archive.org) | SWF, ZIP, HTML from item pages or direct links | No |
+| Site | Downloads | Auth |
+|------|-----------|------|
+| [Newgrounds](https://newgrounds.com) | SWF, MP4, WebM | No |
+| [itch.io](https://itch.io) | Any upload (SWF, ZIP, HTML5, etc.) | API key |
+| [Kongregate](https://kongregate.com) | SWF | No |
+| [Internet Archive](https://archive.org) | SWF, ZIP, HTML | No |
 
-Filenames are cross-referenced against the [Flashpoint Archive](https://flashpointarchive.org)
-database when possible, so your collection stays consistent with the
-preservation community's naming.
+## Flashpoint cross-referencing
 
-## Building from source
+When a game is resolved, flashgrab queries the Flashpoint Archive API to find a
+matching entry. It scores results by source URL similarity first, then falls
+back to title matching. A confirmed match renames the file to the canonical
+Flashpoint title and displays metadata (developer, platform) on the done screen.
+
+## Building
 
 ```sh
 git clone https://github.com/cardinal9985/flashgrab.git
 cd flashgrab
-make build
+make build   # or: go build ./cmd/flashgrab
+make test    # runs go test ./...
 ```
 
-Requires Go 1.21+.
+Requires Go 1.24+.
 
 ## License
 

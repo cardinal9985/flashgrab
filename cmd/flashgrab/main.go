@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cardinal9985/flashgrab/internal/config"
@@ -27,13 +28,11 @@ func main() {
 			runSetup()
 			return
 		default:
-			// Treat anything else as a URL for non-interactive download.
 			runCLI(os.Args[1])
 			return
 		}
 	}
 
-	// No arguments: launch the TUI.
 	runTUI()
 }
 
@@ -116,13 +115,33 @@ func runCLI(rawURL string) {
 		os.Exit(1)
 	}
 
-	// Try to improve filenames with Flashpoint data.
 	fp := sites.NewFlashpointClient()
-	if canonical := fp.LookupTitle(game.Title); canonical != "" {
-		game.Title = canonical
+	if match := fp.Lookup(game.Title, rawURL); match != nil {
+		game.Flashpoint = match
+		if match.Title != "" && match.Title != game.Title {
+			game.Title = match.Title
+			for i := range game.Files {
+				ext := ""
+				name := game.Files[i].Filename
+				if dot := strings.LastIndexByte(name, '.'); dot >= 0 {
+					ext = name[dot:]
+				}
+				game.Files[i].Filename = sanitize.Filename(match.Title, ext)
+			}
+		}
 	}
 
 	fmt.Printf("Found: %s (%s) — %d file(s)\n", game.Title, game.Source, len(game.Files))
+	if game.Flashpoint != nil {
+		info := fmt.Sprintf("Flashpoint: %q", game.Flashpoint.Title)
+		if game.Flashpoint.Developer != "" {
+			info += " by " + game.Flashpoint.Developer
+		}
+		if game.Flashpoint.Platform != "" {
+			info += " (" + game.Flashpoint.Platform + ")"
+		}
+		fmt.Println(info)
+	}
 
 	mgr := download.New(cfg.DownloadDir)
 

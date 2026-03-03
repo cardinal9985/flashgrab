@@ -6,10 +6,10 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
 	"github.com/cardinal9985/flashgrab/internal/config"
 )
 
-// setupStep tracks which field we're editing in the wizard.
 type setupStep int
 
 const (
@@ -23,6 +23,7 @@ type setupModel struct {
 	dirInput   textinput.Model
 	keyInput   textinput.Model
 	err        string
+	title      string
 	width      int
 }
 
@@ -41,10 +42,16 @@ func newSetupModel(cfg *config.Config) setupModel {
 	key.Width = 50
 	key.EchoMode = textinput.EchoPassword
 
+	title := "Settings"
+	if !config.Exists() {
+		title = "First-time Setup"
+	}
+
 	return setupModel{
 		step:     stepDownloadDir,
 		dirInput: dir,
 		keyInput: key,
+		title:    title,
 	}
 }
 
@@ -71,11 +78,12 @@ func (m setupModel) Update(msg tea.Msg) (setupModel, tea.Cmd) {
 		case "enter":
 			switch m.step {
 			case stepDownloadDir:
-				val := strings.TrimSpace(m.dirInput.Value())
-				if val == "" {
-					m.err = "download directory can't be empty"
+				expanded, err := config.ValidateDir(m.dirInput.Value())
+				if err != nil {
+					m.err = err.Error()
 					return m, nil
 				}
+				m.dirInput.SetValue(expanded)
 				m.step = stepItchioKey
 				m.dirInput.Blur()
 				m.keyInput.Focus()
@@ -114,7 +122,6 @@ func (m setupModel) Update(msg tea.Msg) (setupModel, tea.Cmd) {
 		}
 	}
 
-	// Forward to the active input.
 	var cmd tea.Cmd
 	switch m.step {
 	case stepDownloadDir:
@@ -129,10 +136,9 @@ func (m setupModel) Update(msg tea.Msg) (setupModel, tea.Cmd) {
 func (m setupModel) View() string {
 	var b strings.Builder
 
-	header := titleStyle.Render("First-time Setup")
+	header := titleStyle.Render(m.title)
 	b.WriteString(header + "\n\n")
 
-	// Step 1: download directory.
 	label1 := accentStyle.Render("Download directory")
 	if m.step == stepDownloadDir {
 		label1 = titleStyle.Render("> Download directory")
@@ -140,7 +146,6 @@ func (m setupModel) View() string {
 	b.WriteString(label1 + "\n")
 	b.WriteString("  " + m.dirInput.View() + "\n\n")
 
-	// Step 2: itch.io API key.
 	label2 := accentStyle.Render("itch.io API key")
 	if m.step == stepItchioKey {
 		label2 = titleStyle.Render("> itch.io API key")

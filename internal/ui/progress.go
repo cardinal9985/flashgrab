@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -11,19 +13,26 @@ import (
 	"github.com/cardinal9985/flashgrab/internal/sites"
 )
 
+// dlProgress is shared between the download goroutine and the UI tick.
+type dlProgress struct {
+	downloaded atomic.Int64
+	total      atomic.Int64
+}
+
 type progressModel struct {
-	game        *sites.Game
-	files       []sites.GameFile
-	dlManager   *download.Manager
-	current     int
-	results     []*download.Result
-	errors      []error
-	bar         progress.Model
-	spin        spinner.Model
-	downloaded  int64
-	totalSize   int64
-	done        bool
-	width       int
+	game      *sites.Game
+	files     []sites.GameFile
+	dlManager *download.Manager
+	current   int
+	results   []*download.Result
+	errors    []error
+	bar       progress.Model
+	spin      spinner.Model
+	progress  *dlProgress // shared with the download goroutine
+	fileDL    int64       // last polled value
+	fileTotal int64       // last polled value
+	done      bool
+	width     int
 }
 
 func newProgressModel(game *sites.Game, files []sites.GameFile, mgr *download.Manager) progressModel {
@@ -42,22 +51,20 @@ func newProgressModel(game *sites.Game, files []sites.GameFile, mgr *download.Ma
 		dlManager: mgr,
 		bar:       bar,
 		spin:      sp,
+		progress:  &dlProgress{},
 	}
 }
 
-// progressTickMsg carries real-time download progress from the background goroutine.
 type progressTickMsg struct {
 	downloaded int64
 	total      int64
 }
 
-// fileCompleteMsg signals that one file finished downloading.
 type fileCompleteMsg struct {
 	result *download.Result
 	err    error
 }
 
-// allDoneMsg is sent when every file in the queue has been processed.
 type allDoneMsg struct {
 	game    *sites.Game
 	results []*download.Result
@@ -68,6 +75,7 @@ func (m progressModel) Init() tea.Cmd {
 	return tea.Batch(
 		m.spin.Tick,
 		m.downloadNext(),
+		pollProgress(),
 	)
 }
 
@@ -84,14 +92,24 @@ func (m progressModel) downloadNext() tea.Cmd {
 
 	f := m.files[m.current]
 	mgr := m.dlManager
+	p := m.progress
+
+	p.downloaded.Store(0)
+	p.total.Store(0)
 
 	return func() tea.Msg {
 		result, err := mgr.Fetch(f.URL, f.Filename, func(dl, total int64) {
-			// We can't send tea.Msg from here directly, but bubbletea
-			// will pick up the final state when the command returns.
+			p.downloaded.Store(dl)
+			p.total.Store(total)
 		})
 		return fileCompleteMsg{result: result, err: err}
 	}
+}
+
+func pollProgress() tea.Cmd {
+	return tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
+		return progressTickMsg{}
+	})
 }
 
 func (m progressModel) Update(msg tea.Msg) (progressModel, tea.Cmd) {
@@ -105,7 +123,17 @@ func (m progressModel) Update(msg tea.Msg) (progressModel, tea.Cmd) {
 		m.spin, cmd = m.spin.Update(msg)
 		return m, cmd
 
+	case progressTickMsg:
+		if m.done {
+			return m, nil
+		}
+		m.fileDL = m.progress.downloaded.Load()
+		m.fileTotal = m.progress.total.Load()
+		return m, pollProgress()
+
 	case fileCompleteMsg:
+		m.fileDL = 0
+		m.fileTotal = 0
 		if msg.err != nil {
 			m.errors = append(m.errors, fmt.Errorf("%s: %w", m.files[m.current].Name, msg.err))
 		} else {
@@ -129,7 +157,7 @@ func (m progressModel) View() string {
 	b.WriteString(titleStyle.Render(title) + "\n\n")
 
 	// Show completed files.
-	for i, r := range m.results {
+	for _, r := range m.results {
 		status := successStyle.Render("done")
 		if r.Existed {
 			status = warnStyle.Render("exists")
@@ -139,7 +167,6 @@ func (m progressModel) View() string {
 			r.Filename,
 			dimStyle.Render(formatSize(r.Size)),
 		))
-		_ = i
 	}
 
 	// Show errors.
@@ -147,19 +174,30 @@ func (m progressModel) View() string {
 		b.WriteString(fmt.Sprintf("  %s %s\n", errorStyle.Render("fail"), e.Error()))
 	}
 
-	// Show the currently downloading file.
+	// Show the currently downloading file with byte-level progress.
 	if !m.done && m.current < len(m.files) {
 		f := m.files[m.current]
-		b.WriteString(fmt.Sprintf("\n  %s %s\n", m.spin.View(), f.Name))
+		b.WriteString(fmt.Sprintf("\n  %s %s", m.spin.View(), f.Name))
+		if m.fileTotal > 0 {
+			b.WriteString(dimStyle.Render(fmt.Sprintf("  %s / %s",
+				formatSize(m.fileDL), formatSize(m.fileTotal))))
+		} else if m.fileDL > 0 {
+			b.WriteString(dimStyle.Render(fmt.Sprintf("  %s", formatSize(m.fileDL))))
+		}
+		b.WriteString("\n")
+
+		// Per-file progress bar.
+		if m.fileTotal > 0 {
+			pct := float64(m.fileDL) / float64(m.fileTotal)
+			b.WriteString("  " + m.bar.ViewAs(pct) + "\n")
+		}
 	}
 
-	// Progress summary.
+	// File count summary.
 	total := len(m.files)
 	finished := len(m.results) + len(m.errors)
-	if total > 0 {
-		pct := float64(finished) / float64(total)
-		b.WriteString("\n  " + m.bar.ViewAs(pct) + "\n")
-		b.WriteString(dimStyle.Render(fmt.Sprintf("  %d / %d files", finished, total)) + "\n")
+	if total > 1 {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("\n  %d / %d files", finished, total)) + "\n")
 	}
 
 	return b.String()

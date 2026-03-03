@@ -9,7 +9,6 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Config holds all user preferences. Saved as TOML in the XDG config directory.
 type Config struct {
 	DownloadDir string      `toml:"download_dir"`
 	Itchio      ItchioConfig `toml:"itchio"`
@@ -19,7 +18,6 @@ type ItchioConfig struct {
 	APIKey string `toml:"api_key"`
 }
 
-// Defaults returns a config with sane starting values.
 func Defaults() *Config {
 	home, _ := os.UserHomeDir()
 	return &Config{
@@ -27,21 +25,17 @@ func Defaults() *Config {
 	}
 }
 
-// Path returns the full path to the config file.
 func Path() string {
 	dir := configDir()
 	return filepath.Join(dir, "config.toml")
 }
 
-// Exists reports whether a config file has already been written.
 func Exists() bool {
 	_, err := os.Stat(Path())
 	return err == nil
 }
 
-// Load reads the config from disk. If the file doesn't exist it returns
-// defaults without an error—callers should check Exists() first to decide
-// whether to show the setup wizard.
+// Load reads the config from disk, returning defaults if no file exists yet.
 func Load() (*Config, error) {
 	cfg := Defaults()
 
@@ -57,14 +51,12 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 
-	// Expand ~ in the download directory so callers don't have to.
-	cfg.DownloadDir = expandHome(cfg.DownloadDir)
+	cfg.DownloadDir = ExpandHome(cfg.DownloadDir)
 
 	return cfg, nil
 }
 
-// Save writes the config to disk with restricted permissions so the API key
-// isn't world-readable.
+// Save writes the config to disk with 0600 permissions.
 func Save(cfg *Config) error {
 	dir := configDir()
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -93,10 +85,39 @@ func configDir() string {
 	return filepath.Join(home, ".config", "flashgrab")
 }
 
-func expandHome(path string) string {
+func ExpandHome(path string) string {
 	if strings.HasPrefix(path, "~/") {
 		home, _ := os.UserHomeDir()
 		return filepath.Join(home, path[2:])
 	}
 	return path
+}
+
+// ValidateDir expands ~ and checks the path is usable as a download directory.
+func ValidateDir(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", fmt.Errorf("download directory can't be empty")
+	}
+
+	expanded := ExpandHome(raw)
+	expanded, err := filepath.Abs(expanded)
+	if err != nil {
+		return "", fmt.Errorf("invalid path: %w", err)
+	}
+
+	info, err := os.Stat(expanded)
+	if err == nil {
+		if !info.IsDir() {
+			return "", fmt.Errorf("path exists but is not a directory")
+		}
+		return expanded, nil
+	}
+
+	parent := filepath.Dir(expanded)
+	if _, err := os.Stat(parent); err != nil {
+		return "", fmt.Errorf("parent directory %s doesn't exist", parent)
+	}
+
+	return expanded, nil
 }

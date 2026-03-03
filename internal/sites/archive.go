@@ -32,10 +32,7 @@ func (ia *internetArchive) Match(u *url.URL) bool {
 	return host == "archive.org" || host == "www.archive.org"
 }
 
-// Resolve handles two kinds of archive.org URLs:
-//   - Direct file links (/download/collection/file.swf)
-//   - Item pages (/details/collection) — we fetch the metadata JSON and list
-//     all downloadable game files.
+// Resolve handles /details/<id> (item pages) and /download/<id>/<file> (direct links).
 func (ia *internetArchive) Resolve(rawURL string) (*Game, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -58,9 +55,6 @@ func (ia *internetArchive) Resolve(rawURL string) (*Game, error) {
 }
 
 func (ia *internetArchive) resolveDirectLink(rawURL string, parts []string) (*Game, error) {
-	// /download/collectionID/filename.swf
-	itemID := parts[1]
-
 	filename := "download"
 	if len(parts) >= 3 {
 		filename = parts[len(parts)-1]
@@ -68,8 +62,6 @@ func (ia *internetArchive) resolveDirectLink(rawURL string, parts []string) (*Ga
 
 	ext := path.Ext(filename)
 	name := strings.TrimSuffix(filename, ext)
-
-	_ = itemID
 
 	return &Game{
 		Title:  name,
@@ -83,8 +75,7 @@ func (ia *internetArchive) resolveDirectLink(rawURL string, parts []string) (*Ga
 	}, nil
 }
 
-// resolveItemPage calls the Archive metadata API to list all files in an item
-// and picks out the ones that look like games.
+// resolveItemPage fetches the Archive metadata API and filters for game files.
 func (ia *internetArchive) resolveItemPage(itemID string) (*Game, error) {
 	metaURL := fmt.Sprintf("https://archive.org/metadata/%s", url.PathEscape(itemID))
 
@@ -118,7 +109,6 @@ func (ia *internetArchive) resolveItemPage(itemID string) (*Game, error) {
 		title = itemID
 	}
 
-	// Filter to files that look like games: swf, zip, html, etc.
 	gameExts := map[string]bool{
 		".swf": true, ".zip": true, ".7z": true,
 		".html": true, ".htm": true, ".exe": true,

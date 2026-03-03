@@ -14,38 +14,24 @@ var (
 	multiUnderscore = regexp.MustCompile(`_{2,}`)
 )
 
-// Filename takes a raw string and returns a safe filename. It strips path
-// separators, collapses whitespace, removes control characters, and truncates
-// to a reasonable length. The extension is preserved if provided separately.
+// Filename turns a raw string into something safe to use as a filename across
+// platforms. The extension is appended separately so it doesn't get mangled.
 func Filename(name, ext string) string {
-	// Strip any directory components someone might try to sneak in.
 	name = filepath.Base(name)
-
-	// Decode common HTML entities that show up in scraped titles.
 	name = decodeEntities(name)
-
-	// Drop anything that could cause problems on Windows or Unix.
 	name = unsafeChars.ReplaceAllString(name, "_")
-
-	// Normalize whitespace to single underscores.
 	name = multiSpace.ReplaceAllString(name, "_")
 	name = multiUnderscore.ReplaceAllString(name, "_")
-
-	// Trim leading/trailing junk.
 	name = strings.Trim(name, "._- ")
 
-	// Guard against empty or reserved names.
 	if name == "" || name == "." || name == ".." {
 		name = "untitled"
 	}
 
-	// Make sure the extension starts with a dot.
 	if ext != "" && !strings.HasPrefix(ext, ".") {
 		ext = "." + ext
 	}
 
-	// Truncate to keep the full path under filesystem limits. 200 leaves
-	// plenty of room for the directory portion and the extension.
 	const maxBase = 200
 	if len(name) > maxBase {
 		name = name[:maxBase]
@@ -55,8 +41,7 @@ func Filename(name, ext string) string {
 	return name + ext
 }
 
-// URL checks that a raw URL string is a valid HTTP or HTTPS URL and returns
-// the parsed form. Anything else is rejected outright.
+// URL validates that a string is an HTTP(S) URL with a host.
 func URL(raw string) (*url.URL, error) {
 	raw = strings.TrimSpace(raw)
 
@@ -88,8 +73,7 @@ const (
 	errNoHost    constError = "URL is missing a host"
 )
 
-// decodeEntities handles the handful of HTML entities that commonly appear in
-// scraped page titles. A full HTML parser would be overkill here.
+// decodeEntities handles common HTML entities from scraped page titles.
 func decodeEntities(s string) string {
 	r := strings.NewReplacer(
 		"&#039;", "'",
@@ -103,8 +87,7 @@ func decodeEntities(s string) string {
 	return r.Replace(s)
 }
 
-// StripNonPrintable removes non-printable unicode characters while keeping
-// standard ASCII and common international characters intact.
+// StripNonPrintable drops non-printable unicode characters.
 func StripNonPrintable(s string) string {
 	return strings.Map(func(r rune) rune {
 		if unicode.IsPrint(r) {

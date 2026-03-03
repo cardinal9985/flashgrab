@@ -8,10 +8,11 @@ import (
 
 // Game holds metadata about a discovered game and its downloadable files.
 type Game struct {
-	Title  string
-	Source string     // human-readable site name
-	URL    string     // the original URL provided by the user
-	Files  []GameFile // at least one entry
+	Title      string
+	Source     string           // human-readable site name
+	URL        string           // the original URL provided by the user
+	Files      []GameFile       // at least one entry
+	Flashpoint *FlashpointMatch // nil if no Flashpoint match found
 }
 
 // GameFile represents a single downloadable file for a game.

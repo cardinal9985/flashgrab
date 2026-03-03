@@ -24,7 +24,6 @@ func newDoneModel(game *sites.Game, results []*download.Result, errors []error) 
 	}
 }
 
-// restartMsg tells the app to go back to the URL input view.
 type restartMsg struct{}
 
 func (m doneModel) Init() tea.Cmd { return nil }
@@ -50,9 +49,21 @@ func (m doneModel) View() string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render(m.game.Title) + "\n")
-	b.WriteString(dimStyle.Render("from "+m.game.Source) + "\n\n")
+	b.WriteString(dimStyle.Render("from "+m.game.Source) + "\n")
 
-	// List everything that was downloaded.
+	if fp := m.game.Flashpoint; fp != nil {
+		info := fmt.Sprintf("Flashpoint: %q", fp.Title)
+		if fp.Developer != "" {
+			info += " by " + fp.Developer
+		}
+		if fp.Platform != "" {
+			info += " (" + fp.Platform + ")"
+		}
+		b.WriteString(dimStyle.Render(info) + "\n")
+	}
+
+	b.WriteString("\n")
+
 	for _, r := range m.results {
 		icon := successStyle.Render("[saved]")
 		if r.Existed {

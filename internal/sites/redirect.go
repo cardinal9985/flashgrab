@@ -5,9 +5,7 @@ import (
 	"net/http"
 )
 
-// safeRedirectPolicy prevents the HTTP client from following redirects to
-// non-HTTP schemes. This blocks file://, ftp://, and other protocol handlers
-// that could be abused through a malicious redirect.
+// safeRedirectPolicy blocks redirects to non-HTTP(S) schemes and caps the chain at 10.
 func safeRedirectPolicy(req *http.Request, via []*http.Request) error {
 	if len(via) >= 10 {
 		return fmt.Errorf("too many redirects")

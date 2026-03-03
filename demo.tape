@@ -3,27 +3,26 @@ Output demo.gif
 Set Shell "bash"
 Set FontSize 16
 Set Width 900
-Set Height 500
+Set Height 520
 Set Theme "Catppuccin Mocha"
 Set Padding 20
-Set TypingSpeed 80ms
+Set TypingSpeed 50ms
+Env PS1 "$ "
 
 # Launch flashgrab
 Type "flashgrab"
 Enter
-Sleep 2s
+Sleep 2.5s
 
 # Paste a Newgrounds URL
 Type "https://www.newgrounds.com/portal/view/218014"
-Sleep 500ms
+Sleep 300ms
 Enter
+Sleep 8s
 
-# Wait for the resolve + download
-Sleep 4s
-
-# Show the result
-Sleep 3s
+# Done screen — shows Flashpoint match info
+Sleep 2s
 
 # Quit
 Type "q"
-Sleep 1s
+Sleep 500ms

@@ -3,22 +3,29 @@ package ui
 import "github.com/charmbracelet/lipgloss"
 
 const logoArt = `
- _____ _           _     ____           _
-|  ___| | __ _ ___| |__ / ___|_ __ __ _| |__
-| |_  | |/ _` + "`" + ` / __| '_ \| |  _| '__/ _` + "`" + ` | '_ \
-|  _| | | (_| \__ \ | | | |_| | | | (_| | |_) |
-|_|   |_|\__,_|___/_| |_|\____|_|  \__,_|_.__/`
+ ▛▀▘▌  ▞▀▖▞▀▖▌ ▌▞▀▖▛▀▖▞▀▖▛▀▖
+ ▙▄ ▌  ▙▄▌▚▄ ▙▄▌▌▄▖▙▄▘▙▄▌▙▄▘
+ ▌  ▌  ▌ ▌▖ ▌▌ ▌▌ ▌▌▚ ▌ ▌▌ ▌
+ ▘  ▀▀▘▘ ▘▝▀ ▘ ▘▝▀ ▘ ▘▘ ▘▀▀`
 
 var logoStyle = lipgloss.NewStyle().
 	Foreground(colorOrange).
 	Bold(true)
 
 var taglineStyle = lipgloss.NewStyle().
-	Foreground(colorDim).
-	Italic(true)
+	Foreground(colorDim)
 
 func renderLogo() string {
 	logo := logoStyle.Render(logoArt)
-	tagline := taglineStyle.Render("  grab flash games from the web")
-	return logo + "\n" + tagline + "\n"
+	tagline := taglineStyle.Render("[ game preservation toolkit ]")
+
+	logoWidth := lipgloss.Width(logo)
+	taglineWidth := lipgloss.Width(tagline)
+	w := logoWidth
+	if taglineWidth > w {
+		w = taglineWidth
+	}
+	centered := lipgloss.NewStyle().Width(w).Align(lipgloss.Center)
+
+	return logo + "\n\n" + centered.Render(tagline) + "\n"
 }

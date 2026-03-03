@@ -3,6 +3,7 @@ package sites
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -20,8 +21,8 @@ type itchio struct {
 	apiKey string
 }
 
-// NewItchio creates an itch.io site handler. Pass an empty apiKey to disable
-// itch.io support entirely; Resolve will return a helpful error.
+// NewItchio registers the itch.io handler. An empty apiKey is fine — Resolve
+// will just tell the user to set one up.
 func NewItchio(apiKey string) {
 	Register(&itchio{
 		client: &http.Client{
@@ -44,19 +45,16 @@ func (it *itchio) Resolve(rawURL string) (*Game, error) {
 		return nil, fmt.Errorf("itch.io requires an API key — run 'flashgrab config' to set one up")
 	}
 
-	// Parse the game URL to extract author and slug.
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, err
 	}
 
-	// Look up the game ID through the itch.io page.
 	gameID, title, err := it.lookupGame(rawURL, u)
 	if err != nil {
 		return nil, err
 	}
 
-	// Fetch the list of uploads for this game.
 	uploads, err := it.fetchUploads(gameID)
 	if err != nil {
 		return nil, err
@@ -104,8 +102,7 @@ type itchUpload struct {
 }
 
 // lookupGame scrapes the itch.io page to find the game ID and title. The API
-// doesn't provide a way to look up games by URL, so we have to do this the
-// messy way.
+// doesn't have a URL-to-ID lookup, so we scrape data-game_id from the HTML.
 func (it *itchio) lookupGame(rawURL string, u *url.URL) (int, string, error) {
 	resp, err := it.client.Get(rawURL)
 	if err != nil {
@@ -117,30 +114,29 @@ func (it *itchio) lookupGame(rawURL string, u *url.URL) (int, string, error) {
 		return 0, "", fmt.Errorf("game page returned status %d", resp.StatusCode)
 	}
 
-	// itch.io embeds JSON-LD and data attributes with the game ID.
-	// Look for data-game_id or the JSON object.
-	var buf [512 * 1024]byte
-	n, _ := resp.Body.Read(buf[:])
-	page := string(buf[:n])
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return 0, "", fmt.Errorf("reading page: %w", err)
+	}
+	page := string(body)
 
-	// Try the data attribute first.
-	gameIDPattern := regexp.MustCompile(`data-game_id="(\d+)"`)
-	if m := gameIDPattern.FindStringSubmatch(page); len(m) > 1 {
-		var id int
-		fmt.Sscanf(m[1], "%d", &id)
-
-		title := extractItchTitle(page, u)
-		return id, title, nil
+	// itch.io puts the game ID in different places depending on the page type.
+	// Try them all: data attribute, JSON-LD, and the JS init call.
+	idPatterns := []*regexp.Regexp{
+		regexp.MustCompile(`data-game_id="(\d+)"`),
+		regexp.MustCompile(`"game_id"\s*:\s*(\d+)`),
+		regexp.MustCompile(`"game"\s*:\s*\{[^}]*"id"\s*:\s*(\d+)`),
 	}
 
-	// Fall back to the JSON-LD.
-	gameIDJSON := regexp.MustCompile(`"game_id"\s*:\s*(\d+)`)
-	if m := gameIDJSON.FindStringSubmatch(page); len(m) > 1 {
-		var id int
-		fmt.Sscanf(m[1], "%d", &id)
-
-		title := extractItchTitle(page, u)
-		return id, title, nil
+	for _, pat := range idPatterns {
+		if m := pat.FindStringSubmatch(page); len(m) > 1 {
+			var id int
+			fmt.Sscanf(m[1], "%d", &id)
+			if id > 0 {
+				title := extractItchTitle(page, u)
+				return id, title, nil
+			}
+		}
 	}
 
 	return 0, "", fmt.Errorf("couldn't find game ID on the page")
@@ -179,27 +175,34 @@ func (it *itchio) fetchUploads(gameID int) ([]itchUpload, error) {
 	}
 
 	var result struct {
-		Uploads []itchUpload `json:"uploads"`
+		Uploads json.RawMessage `json:"uploads"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("parsing uploads: %w", err)
 	}
 
-	// Fill in display names from filenames if missing.
-	for i := range result.Uploads {
-		if result.Uploads[i].DisplayName == "" {
-			result.Uploads[i].DisplayName = result.Uploads[i].Filename
+	// The itch.io API returns {} instead of [] when there are no uploads.
+	var uploads []itchUpload
+	if len(result.Uploads) > 0 && result.Uploads[0] == '[' {
+		if err := json.Unmarshal(result.Uploads, &uploads); err != nil {
+			return nil, fmt.Errorf("parsing uploads array: %w", err)
+		}
+	}
+	// If it starts with '{', it's an empty object — uploads stays nil.
+
+	for i := range uploads {
+		if uploads[i].DisplayName == "" {
+			uploads[i].DisplayName = uploads[i].Filename
 		}
 	}
 
-	return result.Uploads, nil
+	return uploads, nil
 }
 
 func (it *itchio) getDownloadURL(uploadID int) (string, error) {
 	apiURL := fmt.Sprintf("https://itch.io/api/1/%s/upload/%d/download", it.apiKey, uploadID)
 
-	// The API returns a JSON object with a URL field. We need to NOT follow
-	// the redirect here since we want the signed URL, not the file contents.
+	// Don't follow the redirect — we want the signed URL, not the file.
 	noRedirect := *it.client
 	noRedirect.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
@@ -211,7 +214,6 @@ func (it *itchio) getDownloadURL(uploadID int) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	// The API might return a redirect directly or a JSON body.
 	if resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusTemporaryRedirect {
 		loc := resp.Header.Get("Location")
 		if loc != "" {

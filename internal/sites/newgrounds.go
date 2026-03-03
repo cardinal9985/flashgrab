@@ -1,10 +1,12 @@
 package sites
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -13,10 +15,20 @@ import (
 )
 
 var (
-	ngSWFPattern   = regexp.MustCompile(`https://uploads\.ungrounded\.net/[^"'\s]+\.(swf|mp4|webm)`)
+	// Newgrounds embeds game data as JSON inside an embedController() call.
+	ngEmbedStart   = regexp.MustCompile(`embedController\(`)
 	ngTitlePattern = regexp.MustCompile(`<title>([^<]+)</title>`)
 	ngIDPattern    = regexp.MustCompile(`/view/(\d+)`)
 )
+
+// ngEmbed is the JSON structure Newgrounds uses inside embedController().
+type ngEmbed struct {
+	URL         string `json:"url"`
+	Description string `json:"description"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+	Filesize    int64  `json:"filesize"`
+}
 
 type newgrounds struct {
 	client *http.Client
@@ -39,7 +51,6 @@ func (ng *newgrounds) Match(u *url.URL) bool {
 }
 
 func (ng *newgrounds) Resolve(rawURL string) (*Game, error) {
-	// Pull the submission ID for fallback naming.
 	idMatch := ngIDPattern.FindStringSubmatch(rawURL)
 
 	resp, err := ng.client.Get(rawURL)
@@ -52,55 +63,198 @@ func (ng *newgrounds) Resolve(rawURL string) (*Game, error) {
 		return nil, fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
 
-	// Read up to 2MB—more than enough for the page head and embed markup.
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if err != nil {
 		return nil, fmt.Errorf("reading page: %w", err)
 	}
 	page := string(body)
 
-	// Find the media URL.
-	mediaMatch := ngSWFPattern.FindString(page)
-	if mediaMatch == "" {
-		return nil, fmt.Errorf("couldn't find a download link on that page")
-	}
-
-	// Extract the title from the <title> tag.
 	title := ""
 	if m := ngTitlePattern.FindStringSubmatch(page); len(m) > 1 {
 		title = m[1]
-		// Strip the site suffix that Newgrounds appends.
 		for _, suffix := range []string{" - Newgrounds.com", " | Newgrounds.com"} {
 			title = strings.TrimSuffix(title, suffix)
 		}
 		title = strings.TrimSpace(title)
 	}
 
-	// Fall back to the submission ID if we couldn't get a title.
 	if title == "" && len(idMatch) > 1 {
 		title = "ng_" + idMatch[1]
 	} else if title == "" {
 		title = "untitled"
 	}
 
-	// Figure out the file extension from the matched URL.
-	ext := ".swf"
-	if strings.HasSuffix(mediaMatch, ".mp4") {
-		ext = ".mp4"
-	} else if strings.HasSuffix(mediaMatch, ".webm") {
-		ext = ".webm"
+	embeds, err := ng.parseEmbeds(page)
+	if err != nil || len(embeds) == 0 {
+		return nil, fmt.Errorf("couldn't find a download link on that page")
 	}
 
-	filename := sanitize.Filename(title, ext)
+	var files []GameFile
+	for _, e := range embeds {
+		if e.URL == "" {
+			continue
+		}
+
+		fileURL := strings.ReplaceAll(e.URL, "\\/", "/")
+
+		ext := path.Ext(fileURL)
+		if ext == "" {
+			ext = guessExtension(e.Description)
+		}
+
+		name := title
+		if len(embeds) > 1 && e.Description != "" {
+			name = fmt.Sprintf("%s (%s)", title, e.Description)
+		}
+
+		filename := sanitize.Filename(name, ext)
+
+		files = append(files, GameFile{
+			Name:     fmt.Sprintf("%s%s", name, ext),
+			URL:      fileURL,
+			Size:     e.Filesize,
+			Filename: filename,
+		})
+	}
+
+	if len(files) == 0 {
+		return nil, fmt.Errorf("couldn't find a download link on that page")
+	}
 
 	return &Game{
 		Title:  title,
 		Source: "Newgrounds",
 		URL:    rawURL,
-		Files: []GameFile{{
-			Name:     filename,
-			URL:      mediaMatch,
-			Filename: filename,
-		}},
+		Files:  files,
 	}, nil
+}
+
+// parseEmbeds pulls game file info out of the embedController() call on the page.
+// The array often contains raw JS (callback:function(){...}) mixed in with the
+// JSON, so we can't just regex out the array and unmarshal it directly.
+func (ng *newgrounds) parseEmbeds(page string) ([]ngEmbed, error) {
+	loc := ngEmbedStart.FindStringIndex(page)
+	if loc == nil {
+		return nil, fmt.Errorf("no embed data found")
+	}
+
+	start := loc[1]
+	for start < len(page) && page[start] != '[' {
+		start++
+	}
+	if start >= len(page) {
+		return nil, fmt.Errorf("no embed array found")
+	}
+
+	depth := 0
+	inString := false
+	escaped := false
+	end := -1
+	for i := start; i < len(page); i++ {
+		c := page[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if c == '\\' && inString {
+			escaped = true
+			continue
+		}
+		if c == '"' {
+			inString = !inString
+			continue
+		}
+		if inString {
+			continue
+		}
+		if c == '[' {
+			depth++
+		} else if c == ']' {
+			depth--
+			if depth == 0 {
+				end = i + 1
+				break
+			}
+		}
+	}
+
+	if end == -1 {
+		return nil, fmt.Errorf("unterminated embed array")
+	}
+
+	raw := page[start:end]
+	raw = stripJSFunctions(raw)
+
+	var embeds []ngEmbed
+	if err := json.Unmarshal([]byte(raw), &embeds); err != nil {
+		return nil, fmt.Errorf("parsing embed JSON: %w", err)
+	}
+
+	return embeds, nil
+}
+
+// stripJSFunctions strips unquoted key:value pairs (like callback:function(){...})
+// from a JS object literal so the rest can be parsed as JSON.
+func stripJSFunctions(s string) string {
+	re := regexp.MustCompile(`,\s*[a-zA-Z_]\w*\s*:`)
+	result := s
+	for {
+		loc := re.FindStringIndex(result)
+		if loc == nil {
+			break
+		}
+		valueStart := loc[1]
+		depth := 0
+		inStr := false
+		esc := false
+		i := valueStart
+		for i < len(result) {
+			c := result[i]
+			if esc {
+				esc = false
+				i++
+				continue
+			}
+			if c == '\\' && inStr {
+				esc = true
+				i++
+				continue
+			}
+			if c == '"' {
+				inStr = !inStr
+				i++
+				continue
+			}
+			if inStr {
+				i++
+				continue
+			}
+			if c == '{' || c == '(' || c == '[' {
+				depth++
+			} else if c == '}' || c == ')' || c == ']' {
+				if depth == 0 {
+					break
+				}
+				depth--
+			} else if c == ',' && depth == 0 {
+				break
+			}
+			i++
+		}
+		result = result[:loc[0]] + result[i:]
+	}
+	return result
+}
+
+// guessExtension falls back to the embed description when the URL has no extension.
+func guessExtension(desc string) string {
+	lower := strings.ToLower(desc)
+	switch {
+	case strings.Contains(lower, "flash"):
+		return ".swf"
+	case strings.Contains(lower, "html"):
+		return ".zip"
+	default:
+		return ".swf"
+	}
 }
