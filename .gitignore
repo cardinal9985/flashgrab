@@ -1,5 +1,6 @@
 /flashgrab
 dist/
+vendor/
 *.tmp
 .envrc
 .direnv/
